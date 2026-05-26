@@ -106,7 +106,7 @@ conda activate torch_roads
 ## 3. Install Dependencies
 
 ```bash
-pip install torch torchvision torchaudio segmentation-models-pytorch albumentations opencv-python pillow tqdm onnxruntime-gpu nvidia-cuda-cupti-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12 nvidia-nvjitlink-cu12
+pip install -r requirements.txt
 ```
 
 ---
