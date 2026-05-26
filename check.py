@@ -18,15 +18,15 @@ for d in glob.glob(nvidia_root + r"\*\bin"):
 dll_dirs.append(ENV + r"\Library\bin")
 
 for d in dll_dirs:
- if os.path.isdir(d):
- os.add_dll_directory(d)
- os.environ["PATH"] = d + os.pathsep + os.environ["PATH"]
- print("Added:", d)
+    if os.path.isdir(d):
+        os.add_dll_directory(d)
+        os.environ["PATH"] = d + os.pathsep + os.environ["PATH"]
+        print("Added:", d)
 
 # =========================================================
 # ONNX TEST
 # =========================================================
-import ONNXruntime as ort
+import onnxruntime as ort
 
 print("\n===================================")
 print("ONNX")
