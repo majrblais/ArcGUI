@@ -1,93 +1,125 @@
 # 🛣️ ArcGIS Road Segmentation Toolkit
 
-Deep learning–based road extraction workflow for ArcGIS Pro using ONNX Runtime and U-Net segmentation.
+Deep learning–based road extraction workflow for ArcGIS Pro using a U-Net ResNet101 model exported to ONNX.
 
 ---
 
-# 📌 Overview
+# Overview
 
-This repository provides a practical deployment pipeline for large-scale road segmentation directly inside **ArcGIS Pro** using a trained deep learning model exported to **ONNX** format.
+This repository contains the deployment package developed for automated road extraction within ArcGIS Pro. The project includes:
 
-The system was designed primarily for:
+- ArcGIS Pro GUI toolbox
+- ONNX road segmentation model
+- Standalone Python inference script
+- CUDA / ONNX Runtime GPU acceleration
+- Multi-extent processing support
+- Technical deployment guide
+- Technical report with methodology and results
 
-- Forest road extraction
-- Rural road monitoring
-- GIS-assisted mapping workflows
-- Large-scale segmentation inference
-- Multi-region processing inside ArcGIS Pro
-
-The implementation includes:
-
-- ✅ ArcGIS Pro GUI toolbox
-- ✅ ONNX GPU inference pipeline
-- ✅ Automatic tile export and mosaicking
-- ✅ Multi-extent support
-- ✅ Standalone Python inference script
-- ✅ CUDA / ONNX Runtime acceleration
-- ✅ Edge artifact reduction
-- ✅ Automatic georeferenced output generation
+The system was developed primarily for forestry, agricultural and rural road extraction using high-resolution RGB imagery.
 
 ---
 
-# 🧠 Model Information
+# Repository Structure
 
-The final deployed model is based on:
+```text
+ArcGUI/
+│
+├── README.md
+├── requirements.txt
+├── check.py
+├── python_inference_script.py
+│
+├── reports/
+│   ├── technical_guide.pdf
+│   └── technical_report.pdf
+│
+└── toolbox_files/
+    ├── roadsegmentation_tool.pyt
+    └── roadsegmentation_python.py
+```
+
+## ONNX Model
+
+The trained ONNX model is distributed separately because of GitHub file size limitations.
+
+Download the model from the provided OneDrive link and place it in a convenient location on your computer.
+
+Example:
+
+```text
+E:\Models\best_unet_resnet101_norm_1024.onnx
+```
+
+The toolbox and standalone script both allow the model path to be selected directly.
+
+---
+
+# Model Information
 
 | Component | Value |
-|---|---|
+|------------|------------|
 | Architecture | U-Net |
 | Encoder | ResNet101 |
 | Framework | PyTorch |
-| Deployment Format | ONNX |
+| Deployment | ONNX Runtime |
 | Input Size | 1024 × 1024 |
-| Input Type | RGB imagery |
-| Cell Size | 2 map units |
-| Output | Binary road mask |
-
-The model was trained using aerial and satellite RGB imagery and optimized for road extraction tasks.
+| Input Type | RGB |
+| Output | Binary Road Mask |
+| Cell Size | 2 m/pixel |
 
 ---
 
-# 📂 Repository Structure
+# Documentation
+
+The repository includes two documents inside the `reports` folder.
+
+## Technical Guide
 
 ```text
-.
-├── RoadSegmentationTool_FIXED_PARAMS_CUDA_CLEAN.pyt
-├── road_tool_runner_FIXED_PARAMS_CUDA_CLEAN.py
-├── best_unet_resnet101_norm_1024.onnx
-├── standalone_inference.py
-├── check.py
-├── README.md
+reports/technical_guide.pdf
 ```
 
+Contains:
+
+- Environment setup
+- ArcGIS installation instructions
+- Toolbox deployment
+- GUI usage
+- Standalone inference script
+- Troubleshooting
+
+## Technical Report
+
+```text
+reports/technical_report.pdf
+```
+
+Contains:
+
+- Dataset description
+- Model training procedure
+- Performance evaluation
+- Threshold analysis
+- Deployment benchmarks
+- Explainability results
+- Conclusions and future work
+
 ---
 
-# ⚙️ Requirements
-
-## Software
-
-- ArcGIS Pro
-- Python / Conda
-- NVIDIA GPU (recommended)
-- CUDA-compatible drivers
-
-Although CPU inference is supported, GPU acceleration is highly recommended for practical deployment speed.
-
----
-
-# 🖥️ Environment Setup
+# Environment Setup
 
 ## 1. Clone ArcGIS Environment
 
-Inside **ArcGIS Pro**:
+Inside ArcGIS Pro:
 
 ```text
 Package Manager → Clone Environment
 ```
 
-Recommended environment name:
+Recommended name:
 
-```bash
+```text
 torch_roads
 ```
 
@@ -95,7 +127,7 @@ torch_roads
 
 ## 2. Activate Environment
 
-Open the **Anaconda Prompt**:
+Open Anaconda Prompt:
 
 ```bash
 conda activate torch_roads
@@ -105,13 +137,15 @@ conda activate torch_roads
 
 ## 3. Install Dependencies
 
+From the repository root:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ---
 
-# ✅ Verify GPU Acceleration
+# Verify CUDA / ONNX Runtime
 
 Run:
 
@@ -119,22 +153,31 @@ Run:
 python check.py
 ```
 
-Expected output:
+Expected result:
 
 ```text
-CUDAExecutionProvider active
+CUDAExecutionProvider
 ```
 
-If ONNX Runtime falls back to CPU execution:
-
-- verify CUDA installation
-- verify NVIDIA drivers
-- verify DLL paths
-- reinstall CUDA-related dependencies
+If CUDA is active, ONNX Runtime is correctly using GPU acceleration.
 
 ---
 
-# 🧩 ArcGIS Toolbox Installation
+# ArcGIS Toolbox Installation
+
+The ArcGIS toolbox files are located inside:
+
+```text
+toolbox_files/
+```
+
+Both files must remain together in the same folder:
+
+```text
+toolbox_files/
+├── roadsegmentation_tool.pyt
+└── roadsegmentation_python.py
+```
 
 Inside ArcGIS Pro:
 
@@ -145,230 +188,187 @@ Catalog → Add Toolbox
 Select:
 
 ```text
-RoadSegmentationTool_FIXED_PARAMS_CUDA_CLEAN.pyt
+roadsegmentation_tool.pyt
 ```
 
-⚠️ The `.pyt` and `.py` files must remain in the same folder.
+---
+
+# GUI Workflow
+
+The ArcGIS implementation automatically performs:
+
+1. Export Training Data for Deep Learning
+2. Image preprocessing
+3. ONNX inference
+4. Georeferenced raster creation
+5. Raster mosaicking
+6. Extent clipping
+7. Output generation
+
+The implementation supports:
+
+- Single extent processing
+- Multiple extent processing
+- Buffered extent extraction
+- CUDA acceleration
+- Automatic mosaicking
 
 ---
 
-# 🚀 GUI Workflow
-
-The toolbox automatically:
-
-1. Exports imagery tiles
-2. Applies preprocessing
-3. Performs ONNX inference
-4. Reconstructs predictions
-5. Generates georeferenced rasters
-6. Creates final mosaics
-7. Clips outputs to the original extent
-
----
-
-# 🗺️ Main GUI Parameters
+# Main GUI Parameters
 
 ## Extent Layer
 
-Defines the region(s) processed by the model.
+Polygon layer defining the processing area.
 
 Supports:
 
-- single polygon
-- multiple polygons
-- multiple cells / regions
+- Single polygon
+- Multiple polygons
+- Multiple cells or management regions
 
-Each extent is processed independently.
+## Input Raster
 
----
-
-## Input Raster Layer
-
-Usually:
+Typically:
 
 ```text
 World Imagery
 ```
 
-Wayback imagery can also be used for temporal analysis.
-
----
+Wayback imagery may also be used.
 
 ## Output Folder
 
 Stores:
 
-- exported tiles
-- temporary rasters
-- mosaics
-- final predictions
+- Exported tiles
+- Temporary rasters
+- Intermediate mosaics
+- Final predictions
 
-Final clean outputs are automatically copied into:
+A shared folder named:
 
 ```text
-final_predictions/
+final_predictions
 ```
 
----
+is automatically created.
 
 ## Model File
 
-Select the provided ONNX model:
+Path to:
 
 ```text
 best_unet_resnet101_norm_1024.onnx
 ```
 
----
-
 ## Threshold
 
-Controls binary conversion.
-
-Typical values:
-
-| Threshold | Effect |
-|---|---|
-| 0.4 | Higher recall |
-| 0.5 | Balanced |
-| 0.6 | Cleaner predictions |
-
-Default:
+Recommended:
 
 ```text
 0.5
 ```
 
----
+Typical range:
 
-## Batch Size
+```text
+0.4 - 0.6
+```
 
-Controls the number of tiles processed simultaneously.
+## ONNX Batch Size
 
-Recommended:
+Typical values:
 
-| GPU Memory | Suggested Batch Size |
-|---|---|
-| Low VRAM | 1–2 |
-| Moderate VRAM | 4 |
-| High VRAM | 8–32 |
-
----
+| Hardware | Batch Size |
+|-----------|-----------|
+| CPU | 1 |
+| Small GPU | 2 |
+| RTX 3060 | 4–8 |
+| Larger GPUs | 8–32 |
 
 ## Stride
 
-Controls overlap between exported tiles.
+Controls overlap between tiles.
 
-| Configuration | Effect |
-|---|---|
-| No overlap | Faster |
-| Overlap | Better edge consistency |
+Smaller stride:
 
----
+- More overlap
+- Better edge consistency
+- Longer processing time
+
+Larger stride:
+
+- Faster processing
+- Less overlap
 
 ## Edge Handling
 
-The implementation supports buffered extents to reduce edge artifacts.
+Buffered extraction can be enabled to reduce border artifacts.
 
 Recommended:
 
 ```text
-Buffer = 100 pixels
+100 pixels
 ```
 
 ---
 
-# 🔒 Fixed Parameters
+# Fixed Parameters
 
-These parameters are intentionally fixed to match training conditions:
+The following parameters are intentionally fixed to match the trained model:
 
 | Parameter | Value |
-|---|---|
+|------------|------------|
 | Tile Size | 1024 × 1024 |
 | Cell Size | 2 |
 | Model Input Size | 1024 × 1024 |
 
-Changing these values may produce invalid predictions.
-
 ---
 
-# 📤 Output Structure
+# Standalone Inference Script
 
-For each processed extent:
+A lightweight ONNX inference implementation is provided:
 
 ```text
-extent_name/
-├── exported_tiles/
-├── predictions/
-├── mosaics/
-└── extent_name_roads_prediction_clean.tif
+python_inference_script.py
 ```
 
-All final predictions are additionally copied into:
+This version:
+
+- Does not require ArcGIS
+- Supports folder-based prediction
+- Uses ONNX Runtime directly
+- Saves predicted masks automatically
+
+Suitable for:
+
+- Testing
+- Batch inference
+- Integration into other workflows
+
+---
+
+# Typical Output Structure
 
 ```text
-final_predictions/
+output_folder/
+│
+├── extent_1/
+├── extent_2/
+├── extent_3/
+│
+└── final_predictions/
+    ├── cell_001_roads_prediction_clean.tif
+    ├── cell_002_roads_prediction_clean.tif
+    └── cell_003_roads_prediction_clean.tif
 ```
 
 ---
 
-# 🧪 Standalone Inference Script
+# Troubleshooting
 
-A lightweight standalone ONNX inference script is also included.
-
-Features:
-
-- folder-based prediction
-- PNG/JPG/TIF support
-- automatic normalization
-- automatic resizing
-- GPU inference
-- binary mask generation
-
-Example:
-
-```bash
-python standalone_inference.py
-```
-
----
-
-# 📈 Inference Pipeline
-
-The standalone pipeline performs:
-
-```text
-Image Loading
-    ↓
-Resize to 1024×1024
-    ↓
-ImageNet Normalization
-    ↓
-ONNX Inference
-    ↓
-Sigmoid Activation
-    ↓
-Thresholding
-    ↓
-Binary Mask Generation
-    ↓
-Resize to Original Size
-    ↓
-Save Prediction
-```
-
----
-
-# 🧰 Troubleshooting
-
-## ONNX Runtime Falling Back to CPU
-
-Possible causes:
-
-- incompatible CUDA version
-- missing DLLs
-- incorrect environment activation
-- incompatible ONNX Runtime version
+## CUDA Not Detected
 
 Verify:
 
@@ -376,97 +376,63 @@ Verify:
 python check.py
 ```
 
----
+Check:
+
+- NVIDIA drivers
+- CUDA installation
+- ONNX Runtime installation
+- Active Conda environment
 
 ## Error 126
 
-Typical error:
+Usually caused by:
 
-```text
-LoadLibrary failed with error 126
-```
+- Missing CUDA DLLs
+- Missing cuDNN libraries
+- Version incompatibilities
 
-Usually related to:
-
-- missing CUDA DLLs
-- cuDNN mismatch
-- incorrect GPU drivers
-
-Reinstall CUDA dependencies and verify environment paths.
-
----
-
-## CUDA Out of Memory
+## Out of Memory
 
 Reduce:
 
 ```text
-Batch Size
+ONNX Batch Size
 ```
 
-Recommended low-memory values:
+Recommended values:
 
 ```text
 1 or 2
 ```
 
----
-
-## ArcGIS Export Failures
+## ArcGIS Export Issues
 
 Possible causes:
 
-- invalid extents
-- unavailable imagery
-- internet connectivity
-- insufficient disk space
+- Invalid extent geometry
+- Internet connectivity issues
+- World Imagery availability
+- Insufficient disk space
 
 ---
 
-## Poor Prediction Quality
+# Performance Notes
 
-Verify that imagery:
+According to the deployment benchmarks included in the technical report:
 
-- is RGB
-- is similar to training imagery
-- has approximately 2 m resolution
-- contains visible-spectrum information
-
-Prediction quality may also be affected by annotation inconsistencies.
-
----
-
-# ⚡ Performance Notes
-
-The largest deployment bottleneck is generally:
-
-```text
-Imagery export from ArcGIS
-```
-
-ONNX GPU inference itself is typically very fast.
+- Approximately 196 km² can be processed in under one minute on an RTX 3060 system.
+- ONNX inference itself is only a small portion of the total runtime.
+- The largest bottleneck is generally imagery extraction and GIS processing.
 
 Performance can be improved using:
 
-- faster GPUs
+- Faster GPUs
 - SSD storage
-- larger batch sizes
-- buffered extraction
+- Larger batch sizes
+- Local imagery instead of remote services
 
 ---
 
-# 📚 Technical Guide
+# Citation
 
-A complete technical deployment guide is included in the uploaded document:
-
-fileciteturn0file0L1-L13
-
-The guide contains:
-
-- environment setup
-- ArcGIS integration
-- ONNX deployment
-- GUI usage
-- troubleshooting
-- deployment recommendations
-
+If this repository is used in a project or publication, please also reference the accompanying technical report and technical guide located in the `reports` folder.
