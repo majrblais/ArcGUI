@@ -201,7 +201,7 @@ class RunRoadSegmentationONNX(object):
         if tool_dir not in sys.path:
             sys.path.insert(0, tool_dir)
 
-        from road_tool_runner_FIXED_PARAMS_CUDA_CLEAN import run_road_tool_multiple
+        from roadsegmentation_python import run_road_tool_multiple
 
         extent_layer_text = parameters[0].valueAsText
         extent_layers = []
