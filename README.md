@@ -29,6 +29,10 @@ ArcGUI/
 │   ├── technical_guide.pdf
 │   └── technical_report.pdf
 │
+├── slider_toolbox/
+│   ├── README.md
+│   └── RoadProbabilityThreshold.pyt
+│
 └── toolbox_files/
     ├── README.md
     ├── roadsegmentation_tool.pyt
@@ -155,6 +159,25 @@ Contains the complete documentation.
 
 See [`reports/README.md`](reports/README.md).
 
+## `slider_toolbox/`
+
+Contains the optional **Road Probability Threshold** ArcGIS Pro toolbox.
+
+GitHub folder:
+
+https://github.com/majrblais/ArcGUI/tree/main/slider_toolbox
+
+The toolbox is useful after ArcGUI inference when the user wants to visually test different probability thresholds or create a permanent binary road mask from a probability raster.
+
+It contains two tools:
+
+1. **Load / Refresh Threshold Preview** — changes ArcGIS symbology only, so values at or below the selected threshold are transparent and values above the threshold are displayed in the selected color. No new raster is written.
+2. **Generate Binary Road Mask** — creates a permanent 0/1 raster using the rule `probability > threshold`, while preserving NoData.
+
+A standard ArcGIS Python toolbox does not provide a continuously updating drag slider, so the preview threshold is changed by entering a value and clicking **Run** again.
+
+More information: [`slider_toolbox/README.md`](slider_toolbox/README.md)
+
 ---
 
 # Environment Setup
@@ -268,6 +291,26 @@ The tool appears as:
 ```text
 ArcGUI Road Segmentation
 ```
+
+## Optional: install the probability-threshold toolbox
+
+The secondary threshold toolbox is stored in:
+
+```text
+slider_toolbox/RoadProbabilityThreshold.pyt
+```
+
+Add it to ArcGIS Pro the same way:
+
+```text
+Catalog
+→ Toolboxes
+→ Add Toolbox
+```
+
+This toolbox does not run the neural network. It works on an existing road-probability raster and is mainly intended for quick threshold exploration and final binary-mask creation.
+
+Full instructions: [`slider_toolbox/README.md`](slider_toolbox/README.md)
 
 ---
 
@@ -477,6 +520,7 @@ For a normal GPU workstation:
 13. Start with batch size `2` for SegFormer CUDA or `4` for U-Net CUDA.
 14. Optionally run **Debug Footprint Preview Only** before a large job.
 15. Run the tool and review the final raster in ArcGIS Pro.
+16. If you want to test alternative probability thresholds interactively, use the optional `slider_toolbox/RoadProbabilityThreshold.pyt` toolbox on the generated probability raster.
 
 For a faster GPU model comparison, repeat the same cached region using:
 
