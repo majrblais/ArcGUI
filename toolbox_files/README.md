@@ -44,6 +44,8 @@ The active map must use a **projected coordinate system measured in metres**.
 
 Do not leave the input extent with an Unknown/undefined CRS.
 
+Generally, when using World Imagery, the default CRS is ok and nothing has to be modified.
+
 ## Cell size
 
 The deployment is designed for:
@@ -85,12 +87,7 @@ ArcGUI expects that name to identify one unique usable imagery/raster layer.
 ## Extent
 
 Add the polygon layer that defines the processing region.
-
-The current version uses the **exact selected polygon** as the target area.
-
-There is no user-configurable extent buffer.
-
-Selections and definition queries on the extent layer are respected.
+It can be a layer such as the CSRNO limit, or a drawn polygon.
 
 ---
 
@@ -407,42 +404,342 @@ At a high level ArcGUI:
 
 # 9. Typical output structure
 
+ArcGUI organizes the outputs by:
+
+1. processing extent;
+2. reusable imagery/export configuration;
+3. model used for inference.
+
+This makes it possible to process the same area with several models without overwriting previous results and, when the configuration is unchanged, without downloading the imagery again.
+
+For example, assume the ArcGIS polygon extent layer is named:
+
+```text
+TestExtent
+```
+
+and the selected model is:
+
+```text
+segformer_cuda_fp16.onnx
+```
+
+with:
+
+```text
+Tile Overlap = 50%
+Optimized Large-Area Export = enabled
+```
+
+ArcGUI will create a structure similar to:
+
 ```text
 output_folder/
 │
-├── Extent_Name/
+├── TestExtent/
+│   │
 │   ├── export_cache/
-│   │   └── <configuration>/
+│   │   └── optimized_ov50_a1b2c3d4e5f6/
+│   │       │
 │   │       ├── export_config.txt
 │   │       ├── export_config.json
+│   │       │
 │   │       └── imagery/
+│   │           └── ...
 │   │
 │   └── model_outputs/
-│       ├── segformer_best_cuda/
-│       │   └── <configuration>/
-│       └── unet_best_cuda/
-│           └── <configuration>/
+│       └── segformer_best_cuda/
+│           └── optimized_ov50_a1b2c3d4e5f6/
+│               └── run/
+│                   │
+│                   ├── run_status.txt
+│                   ├── model_run_info.txt
+│                   ├── ...
+│                   │
+│                   └── final/
+│                       ├── roads_probability_mosaic.tif
+│                       ├── roads_probability_clipped_to_extent.tif
+│                       ├── roads_prediction_binary.tif
+│                       └── TestExtent_segformer_best_cuda_roads_prediction_clean.tif
 │
 └── final_predictions/
-    ├── segformer_best_cuda/
-    └── unet_best_cuda/
+    └── segformer_best_cuda/
+        └── optimized_ov50_a1b2c3d4e5f6/
+            └── TestExtent_segformer_best_cuda_roads_prediction_clean.tif
 ```
 
-The exact subfolder names can include configuration/cache identifiers.
+> `a1b2c3d4e5f6` is only an example configuration/cache identifier. ArcGUI generates the real identifier automatically from the processing configuration.
+
+## Which files are important?
+
+### Final road prediction
+
+The main final product for normal GIS use is:
+
+```text
+TestExtent_segformer_best_cuda_roads_prediction_clean.tif
+```
+
+A convenient copy is stored under:
+
+```text
+output_folder/
+└── final_predictions/
+    └── segformer_best_cuda/
+        └── <configuration>/
+            └── TestExtent_segformer_best_cuda_roads_prediction_clean.tif
+```
+
+This is the final thresholded road raster generated using the threshold selected in the ArcGUI interface.
+
+For example, if:
+
+```text
+Prediction Threshold = 0.50
+```
+
+then the final road raster is the road/no-road result produced at that threshold.
+
+This is normally the file to add to a GIS project, use for mapping, or provide as the final road-extraction result.
+
+### Probability raster to keep for future threshold testing
+
+The most useful file to keep for later threshold adjustment is:
+
+```text
+roads_probability_clipped_to_extent.tif
+```
+
+It is located inside the model run folder:
+
+```text
+TestExtent/
+└── model_outputs/
+    └── segformer_best_cuda/
+        └── <configuration>/
+            └── run/
+                └── final/
+                    └── roads_probability_clipped_to_extent.tif
+```
+
+This raster contains the continuous road-probability values produced by the model and clipped to the selected `TestExtent` polygon.
+
+Its values are approximately:
+
+```text
+0.0  -> low road probability
+...
+1.0  -> high road probability
+```
+
+This is the recommended input for the **Road Probability Threshold** toolbox.
+
+Keep this file if you may want to try a different threshold later.
+
+For example, you can test values such as:
+
+```text
+0.30
+0.40
+0.50
+0.60
+0.70
+```
+
+without:
+
+- downloading imagery again;
+- rerunning SegFormer or U-Net;
+- repeating ONNX inference.
+
+Only the conversion from probability to a visible/binary road mask changes.
+
+### `roads_probability_mosaic.tif`
+
+ArcGUI also creates:
+
+```text
+roads_probability_mosaic.tif
+```
+
+This is the reconstructed continuous probability surface created from the overlapping model predictions before the final polygon clip.
+
+It is an important intermediate product, but for normal post-processing and threshold experimentation, use:
+
+```text
+roads_probability_clipped_to_extent.tif
+```
+
+because that file has already been clipped to the requested polygon.
+
+### `roads_prediction_binary.tif`
+
+ArcGUI also creates:
+
+```text
+roads_prediction_binary.tif
+```
+
+This is the direct thresholded raster created during finalization using the threshold selected in the ArcGUI run.
+
+It is mainly an intermediate product used to produce the cleaned final road raster.
+
+For normal use, prefer:
+
+```text
+TestExtent_segformer_best_cuda_roads_prediction_clean.tif
+```
+
+### `run_status.txt` and `model_run_info.txt`
+
+Each model run also records small text files such as:
+
+```text
+run_status.txt
+model_run_info.txt
+```
+
+These are useful when reviewing or troubleshooting a previous run.
+
+They record basic run information such as the selected model, execution target, threshold, batch size, and associated export cache.
+
+## Running another model on the same extent
+
+Suppose `TestExtent` was first processed using:
+
+```text
+segformer_cuda_fp16.onnx
+```
+
+and you later run exactly the same extent/export configuration using:
+
+```text
+best_unet_resnet101_norm_1024_cuda_fp16.onnx
+```
+
+ArcGUI can reuse the same imagery cache:
+
+```text
+TestExtent/
+├── export_cache/
+│   └── optimized_ov50_a1b2c3d4e5f6/
+│
+└── model_outputs/
+    ├── segformer_best_cuda/
+    │   └── optimized_ov50_a1b2c3d4e5f6/
+    │       └── run/
+    │
+    └── unet_best_cuda/
+        └── optimized_ov50_a1b2c3d4e5f6/
+            └── run/
+```
+
+The imagery under `export_cache` is shared, while each model receives its own model-output folder.
+
+The final prediction folder will then contain separate results:
+
+```text
+final_predictions/
+├── segformer_best_cuda/
+│   └── optimized_ov50_a1b2c3d4e5f6/
+│       └── TestExtent_segformer_best_cuda_roads_prediction_clean.tif
+│
+└── unet_best_cuda/
+    └── optimized_ov50_a1b2c3d4e5f6/
+        └── TestExtent_unet_best_cuda_roads_prediction_clean.tif
+```
+
+This makes it easy to compare SegFormer and U-Net on exactly the same exported imagery.
+
+## Repeated runs
+
+If the same model/configuration is run again, ArcGUI does not overwrite an existing model run.
+
+A new run folder can be created automatically, for example:
+
+```text
+run/
+run_1/
+run_2/
+```
+
+This prevents previous outputs from being accidentally deleted.
+
+## Quick reference
+
+```text
+FINAL ROAD MAP TO USE:
+TestExtent_segformer_best_cuda_roads_prediction_clean.tif
+
+KEEP FOR FUTURE THRESHOLD CHANGES:
+roads_probability_clipped_to_extent.tif
+```
 
 ---
 
 # 10. After inference: try another threshold
 
-If you want to test a different threshold without rerunning the model, use:
+The threshold selected in ArcGUI does **not** permanently lock the model prediction to that value.
+
+ArcGUI keeps the continuous probability raster so different thresholds can be tested later without rerunning the neural network.
+
+For the `TestExtent` example, use:
+
+```text
+TestExtent/
+└── model_outputs/
+    └── segformer_best_cuda/
+        └── <configuration>/
+            └── run/
+                └── final/
+                    └── roads_probability_clipped_to_extent.tif
+```
+
+as the input to:
 
 ```text
 ../slider_toolbox/RoadProbabilityThreshold.pyt
 ```
 
-See:
+See the complete threshold-tool guide:
 
 [`../slider_toolbox/README.md`](../slider_toolbox/README.md)
+
+The recommended workflow is:
+
+```text
+ArcGUI inference
+        ↓
+roads_probability_clipped_to_extent.tif
+        ↓
+Load / Refresh Threshold Preview
+        ↓
+try different threshold values
+        ↓
+choose the preferred threshold
+        ↓
+Generate Binary Road Mask
+        ↓
+final custom-threshold road raster
+```
+
+For example, if the original ArcGUI run used:
+
+```text
+Threshold = 0.50
+```
+
+but visual inspection shows that some narrow roads are being missed, you can preview:
+
+```text
+Threshold = 0.40
+```
+
+using the probability raster.
+
+If `0.40` gives the preferred result, use **Generate Binary Road Mask** to create a permanent road raster at that threshold.
+
+No imagery export or ONNX inference needs to be repeated.
 
 ---
 

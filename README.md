@@ -102,7 +102,7 @@ See [`MODEL_WEIGHTS.md`](MODEL_WEIGHTS.md) for model access information.
 
 ## 3.1 Install ArcGIS Pro
 
-The main toolbox is designed to run inside ArcGIS Pro.
+The main toolbox is designed to run inside ArcGIS Pro with the help of Anaconda Prompt.
 
 The production imagery-export workflow requires the ArcGIS **Image Analyst** capability used by `Export Training Data for Deep Learning`.
 
@@ -124,7 +124,13 @@ A practical cloned environment name is:
 torch_roads
 ```
 
-Activate it from an ArcGIS Pro / Conda prompt:
+Activate the cloned environment using **Anaconda Prompt**, which is installed with Anaconda Distribution.
+
+Anaconda Distribution can be downloaded here:
+
+https://www.anaconda.com/download
+
+Then activate the environment with:
 
 ```bash
 conda activate torch_roads
