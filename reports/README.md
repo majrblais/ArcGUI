@@ -1,96 +1,64 @@
-# ArcGUI `reports/`
+# ArcGUI Reports
 
-This folder contains the complete project documentation.
+This folder contains the full project documentation.
 
-The root `README.md` is intended as a quick-start deployment reference. For full details, use the PDFs in this folder.
+The GitHub README files are intended to tell users **how to install and use the tools**.
+
+The PDFs in this folder provide the deeper technical explanation and project results.
 
 ---
 
 ## `technical_guide.pdf`
 
-The **technical deployment guide** is the main user guide for ArcGUI.
+Use this document for the complete ArcGIS deployment guide, including screenshots and more detailed workflow explanations.
 
-It covers:
+Typical topics include:
 
-- environment setup;
-- ONNX / CUDA verification;
-- model selection;
-- ArcGIS toolbox installation;
-- GUI parameters;
-- coordinate-system requirements;
-- direct and optimized export modes;
-- 1024 × 1024 overlap behavior;
-- reusable imagery caching;
-- debug footprint preview;
-- probability reconstruction;
+- ArcGIS / Python environment setup;
+- model deployment;
+- GUI behavior;
+- coordinate systems;
+- export modes;
+- overlap;
+- caching;
 - thresholding;
-- output structure;
-- safeguards and troubleshooting;
-- recommended operational workflow.
+- outputs;
+- troubleshooting.
 
 ---
 
 ## `technical_report.pdf`
 
-The **technical report** documents the research and model-development work behind ArcGUI.
+Use this document for the research/model-development side of the project.
 
-It includes:
+Typical topics include:
 
 - dataset preparation;
-- annotation issues and corrections;
-- training methodology;
-- architecture/loss comparisons;
-- U-Net and SegFormer evaluation;
-- held-out validation;
-- qualitative examples;
-- threshold analysis;
-- runtime benchmarks;
+- annotation correction;
+- model training;
+- U-Net / SegFormer comparison;
+- validation metrics;
+- qualitative analysis;
+- performance/runtime comparison;
 - final model selection;
-- conclusions;
-- future work.
-
-The final project model is SegFormer MiT-B5, while the best U-Net ResNet101 model is retained as a faster deployment alternative.
+- conclusions and future work.
 
 ---
 
-# Recommended Deployment Models
+## Which documentation should I use?
 
-Primary:
+If your goal is:
 
 ```text
-segformer_cuda_fp16.onnx
+"How do I install and run this?"
 ```
 
-Faster CUDA alternative:
+start with the repository `README.md` and the README inside the tool folder.
+
+If your goal is:
 
 ```text
-best_unet_resnet101_norm_1024_cuda_fp16.onnx
+"How does the system work in detail, and what were the project results?"
 ```
 
-Other CPU, last-checkpoint, and old-milestone models are retained mainly for compatibility, comparison, or reproducibility.
-
----
-
-# Model Access
-
-The ONNX weights are distributed separately from GitHub.
-
-Contact **Laurie Vidal** or **Dodick Gasser**.
-
-The model files are available in the **CCNB Innov – Chemin forestier** OneDrive shared by Laurie Vidal under the **`final`** folder.
-
----
-
-# Keeping Documentation Current
-
-When the GUI or backend is updated, verify that the deployment guide still reflects:
-
-- current GUI parameters;
-- supported model filenames;
-- exact-polygon processing behavior;
-- recommended batch sizes;
-- cache behavior;
-- output-folder organization;
-- environment requirements.
-
-The technical guide is intended to remain the authoritative detailed deployment document.
+use the PDFs in this folder.

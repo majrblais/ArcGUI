@@ -1,8 +1,8 @@
-# 🎚️ Road Probability Threshold Toolbox
+# Road Probability Threshold Toolbox — User Guide
 
-This folder contains the optional ArcGIS Pro toolbox used to explore and apply probability thresholds to ArcGUI road-probability rasters.
+This folder contains the threshold-adjustment toolbox used after ArcGUI inference.
 
-GitHub folder:
+Repository folder:
 
 https://github.com/majrblais/ArcGUI/tree/main/slider_toolbox
 
@@ -12,30 +12,11 @@ slider_toolbox/
 └── RoadProbabilityThreshold.pyt
 ```
 
-The toolbox is independent from the main ArcGUI inference toolbox.
-
-It does **not** load an ONNX model and does **not** rerun road segmentation.
-
-Instead, it works with an existing single-band road-probability raster produced by ArcGUI or another compatible workflow.
+The toolbox is useful when ArcGUI has already created a road-probability raster and you want to test a different threshold **without rerunning imagery export or ONNX inference**.
 
 ---
 
-# Why Use This Toolbox?
-
-ArcGUI normally applies a default prediction threshold of `0.50` after reconstructing the probability surface.
-
-However, the best visual threshold can vary slightly depending on imagery, road appearance, and the desired balance between missed roads and false positives.
-
-This toolbox makes it easy to:
-
-- preview different thresholds quickly;
-- hide low-probability pixels without creating a new raster every time;
-- choose a road display color and opacity;
-- create a permanent binary 0/1 road raster once a useful threshold has been selected.
-
----
-
-# Installation
+# 1. Install the toolbox
 
 In ArcGIS Pro:
 
@@ -48,16 +29,10 @@ Catalog
 Select:
 
 ```text
-slider_toolbox/RoadProbabilityThreshold.pyt
+RoadProbabilityThreshold.pyt
 ```
 
-The toolbox appears as:
-
-```text
-Road Probability Threshold
-```
-
-It contains two tools:
+The toolbox contains two tools:
 
 ```text
 1 - Load / Refresh Threshold Preview
@@ -66,61 +41,64 @@ It contains two tools:
 
 ---
 
-# Tool 1 — Load / Refresh Threshold Preview
+# 2. Input raster
 
-This is the recommended tool for trying different threshold values.
+Use a **single-band road probability raster** produced by the ArcGUI workflow.
 
-## What it does
-
-The tool adds or reuses a map layer pointing to the **original probability raster** and changes only its ArcGIS symbology.
-
-The display rule is:
+The expected probability range is approximately:
 
 ```text
-probability <= threshold
-    -> transparent
-
-probability > threshold
-    -> visible road color
+0.0 to 1.0
 ```
 
-No new threshold raster is created.
+The tool does not rescale the raster.
 
-Because only the layer symbology is updated, changing the threshold is fast.
+A value closer to `1` indicates stronger road probability.
+
+---
+
+# 3. Tool 1 — Load / Refresh Threshold Preview
+
+Use this tool to visually test a threshold quickly.
+
+It does **not** create a new threshold raster.
+
+It only changes the map symbology of a layer pointing to the original probability raster.
 
 ## Parameters
 
 ### Road Probability Raster
 
-Select the single-band probability raster to preview.
-
-This is normally an ArcGUI probability output containing values approximately between `0` and `1`.
+Select the probability raster to inspect.
 
 ### Probability Threshold
 
-Valid range:
-
-```text
-0.0 - 1.0
-```
-
-Recommended starting value:
+Default:
 
 ```text
 0.50
 ```
 
-The comparison is strict:
+The preview rule is:
 
 ```text
-probability > threshold
+probability <= threshold  -> hidden
+probability > threshold   -> visible road
 ```
 
-For example, with a threshold of `0.50`, a pixel with probability `0.50` is hidden and a pixel with probability `0.51` is displayed.
+Lower threshold:
+
+- detects more possible road pixels;
+- can increase false positives.
+
+Higher threshold:
+
+- keeps only stronger predictions;
+- can remove weak/narrow road segments.
 
 ### Road Preview Color
 
-Available presets include:
+Choose one of:
 
 ```text
 Red
@@ -135,214 +113,11 @@ Black
 Custom RGB
 ```
 
-### Custom RGB
+### Custom RGB (R,G,B)
 
-When **Custom RGB** is selected, enter a value such as:
-
-```text
-255,0,0
-```
-
-Each value must be an integer from `0` to `255`.
-
-### Visible Road Opacity (%)
-
-Controls the opacity of the visible road pixels.
-
-Valid range:
-
-```text
-0 - 100
-```
-
-### Turn Off Original Probability Layer
-
-When enabled, another map layer pointing to the same probability raster is turned off so that only the threshold preview remains visible.
-
-## How to refresh the preview
-
-A standard ArcGIS Pro `.pyt` Python toolbox does not provide a continuously updating drag slider.
-
-To test another threshold:
-
-1. change **Probability Threshold**;
-2. click **Run** again.
-
-The source probability raster is not rewritten.
-
----
-
-# Tool 2 — Generate Binary Road Mask
-
-Use this tool once a useful threshold has been selected.
-
-## What it creates
-
-The output is a permanent single-band binary road raster:
-
-```text
-0 = background
-1 = road
-```
-
-The rule is:
-
-```text
-probability > threshold  -> 1
-probability <= threshold -> 0
-```
-
-Source NoData is preserved as NoData.
-
-## Parameters
-
-### Road Probability Raster
-
-The input single-band road-probability raster.
-
-### Probability Threshold
-
-The final selected threshold, normally first tested with Tool 1.
-
-### Output Binary Road Raster
-
-Destination for the permanent binary output.
-
-When the input is a TIFF, ArcGIS attempts to suggest a filename similar to:
-
-```text
-<probability_name>_binary_threshold.tif
-```
-
-### Road Display Color
-
-Controls the map color applied to road value `1` after the output is added to the map.
-
-Background value `0` is displayed transparently.
-
-### Custom RGB
-
-Optional custom road color in `R,G,B` form.
+Only enabled when **Custom RGB** is selected.
 
 Example:
-
-```text
-0,255,0
-```
-
-### Road Display Opacity (%)
-
-Controls road-layer opacity in the ArcGIS map.
-
-### Add Binary Raster to Current Map
-
-When enabled, the new binary raster is automatically added to the active map and styled so:
-
-```text
-0 -> transparent background
-1 -> selected road color
-```
-
----
-
-# Recommended Workflow
-
-A typical ArcGUI workflow is:
-
-```text
-ArcGUI Road Segmentation
-        ↓
-continuous road-probability raster
-        ↓
-Tool 1: Load / Refresh Threshold Preview
-        ↓
-try 0.40, 0.45, 0.50, 0.55, ...
-        ↓
-visually select the preferred threshold
-        ↓
-Tool 2: Generate Binary Road Mask
-        ↓
-permanent 0/1 raster
-```
-
-For most deployments, begin with:
-
-```text
-Threshold = 0.50
-```
-
-Then adjust only if the visual road network is too permissive or too restrictive.
-
-A lower threshold generally increases road detections but can also increase false positives.
-
-A higher threshold generally removes weaker detections but can also create missing road segments.
-
----
-
-# Probability Raster Requirements
-
-The toolbox expects a **single-band raster**.
-
-The intended input contains road probabilities approximately in the range:
-
-```text
-0.0 - 1.0
-```
-
-The toolbox does not rescale the data.
-
-If the raster statistics extend outside `[0,1]`, the preview tool displays a warning because the input may not represent probabilities.
-
----
-
-# Important Notes
-
-## This is not a true live slider
-
-The name `slider_toolbox` refers to threshold exploration, but a standard ArcGIS Python toolbox cannot update continuously while the user drags a GUI slider.
-
-The practical workflow is:
-
-```text
-change threshold
-→ click Run
-→ inspect preview
-→ repeat
-```
-
-A true continuously updating slider would require an ArcGIS Pro SDK add-in rather than a normal `.pyt` toolbox.
-
-## Tool 1 does not duplicate the raster
-
-The preview is symbology only.
-
-This is intentional so users can test many thresholds quickly without generating many large TIFF files.
-
-## Tool 2 is the permanent output step
-
-Only use Tool 2 when a threshold has been selected and a real binary raster is required for export, GIS processing, or sharing.
-
----
-
-# Troubleshooting
-
-## Probability raster cannot be resolved
-
-Make sure the raster:
-
-- exists on disk or is loaded in the active map;
-- is readable by ArcGIS Pro;
-- is a raster dataset rather than an unrelated layer type.
-
-## The raster has several bands
-
-The toolbox requires a single-band probability raster.
-
-Use the actual road-probability output rather than the original RGB imagery.
-
-## Custom RGB gives an error
-
-Use exactly three comma-separated integers:
 
 ```text
 255,0,0
@@ -350,19 +125,153 @@ Use exactly three comma-separated integers:
 
 Each value must be from `0` to `255`.
 
-## Threshold preview does not update automatically while typing or dragging
+### Visible Road Opacity (%)
 
-This is expected.
+Controls the opacity of visible road pixels.
 
-Change the threshold and click **Run** again.
+Default:
 
-## Binary raster is created but symbology is not perfect
+```text
+100
+```
 
-The raster itself can still be valid.
+### Turn Off Original Probability Layer
 
-Automatic map styling is a convenience step and ArcGIS symbology behavior can vary slightly between versions.
+Recommended:
 
-The important output values remain:
+```text
+True
+```
+
+This hides another map layer pointing to the same source raster so only the threshold preview is visible.
+
+## Run the preview
+
+Click **Run**.
+
+The toolbox creates or refreshes a map layer named:
+
+```text
+Road Probability Threshold Preview
+```
+
+To test another threshold:
+
+1. change the threshold value;
+2. click **Run** again.
+
+### Important: this is not a live dragged slider
+
+A standard ArcGIS Python toolbox does not provide a continuously updating drag-slider control.
+
+The workflow is:
+
+```text
+change threshold
+→ Run
+→ inspect map
+→ change threshold
+→ Run again
+```
+
+This is still fast because the probability raster is not recalculated.
+
+---
+
+# 4. Tool 2 — Generate Binary Road Mask
+
+Use this tool after choosing the threshold you want to keep.
+
+It creates a permanent binary raster.
+
+The output rule is:
+
+```text
+probability > threshold  -> 1 = road
+probability <= threshold -> 0 = background
+NoData in source         -> NoData in output
+```
+
+## Parameters
+
+### Road Probability Raster
+
+Select the probability raster.
+
+### Probability Threshold
+
+Use the threshold selected during preview.
+
+Example:
+
+```text
+0.50
+```
+
+### Output Binary Road Raster
+
+Choose where to save the permanent result.
+
+When possible, the toolbox suggests a filename next to the source raster similar to:
+
+```text
+<source>_binary_threshold.tif
+```
+
+### Road Display Color
+
+Choose the map color for road value `1`.
+
+### Custom RGB (R,G,B)
+
+Used only when **Custom RGB** is selected.
+
+### Road Display Opacity (%)
+
+Controls the map display opacity.
+
+### Add Binary Raster to Current Map
+
+Default:
+
+```text
+True
+```
+
+When enabled, the output is added to the active map automatically.
+
+The display is styled so:
+
+```text
+0 = transparent background
+1 = visible road color
+```
+
+---
+
+# 5. Recommended threshold workflow
+
+A simple workflow is:
+
+1. run ArcGUI with threshold `0.50`;
+2. locate the saved probability raster;
+3. open **1 - Load / Refresh Threshold Preview**;
+4. test values such as `0.35`, `0.40`, `0.45`, `0.50`, `0.55`, or `0.60`;
+5. compare road continuity and false positives in the map;
+6. choose the threshold that best matches the intended mapping task;
+7. run **2 - Generate Binary Road Mask** with that threshold.
+
+You do **not** need to redownload imagery or rerun the ONNX model simply to change the threshold.
+
+---
+
+# 6. What the colors mean
+
+The color and opacity settings affect **display only**.
+
+They do not change the probability values or the binary road classification.
+
+For the permanent binary raster:
 
 ```text
 0 = background
@@ -371,28 +280,64 @@ The important output values remain:
 
 ---
 
-# Relationship to the Main ArcGUI Toolbox
+# 7. Troubleshooting
 
-The main toolbox is located in:
+## Preview does not appear
+
+Make sure:
+
+- an ArcGIS Pro map is open;
+- the raster can be resolved from the map or disk;
+- the raster is single-band;
+- the raster has valid values/statistics.
+
+## The preview looks almost completely filled
+
+The threshold may be too low, or the source raster may not be a 0–1 probability raster.
+
+## Almost no roads appear
+
+The threshold may be too high.
+
+## Custom RGB gives an error
+
+Use exactly three integers between 0 and 255:
 
 ```text
-toolbox_files/
+R,G,B
 ```
 
-and performs imagery export and model inference.
-
-The threshold toolbox is located in:
+Example:
 
 ```text
-slider_toolbox/
+0,255,255
 ```
 
-and operates **after inference** on the probability raster.
+## I want a true live drag slider
 
-The two toolboxes can be installed independently, but they are designed to work together.
+A standard `.pyt` toolbox cannot provide a continuously updating ArcGIS slider.
 
-For the full ArcGUI deployment instructions, see:
+That would require a separate ArcGIS Pro SDK add-in.
+
+---
+
+# 8. Relationship to the main ArcGUI toolbox
+
+The main toolbox performs the expensive work:
 
 ```text
-../reports/technical_guide.pdf
+imagery export
+→ ONNX inference
+→ probability reconstruction
 ```
+
+This threshold toolbox works on the saved probability result:
+
+```text
+probability raster
+→ preview threshold
+or
+→ permanent binary mask
+```
+
+Use the main toolbox first, then this toolbox for threshold refinement.

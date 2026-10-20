@@ -1,6 +1,10 @@
-# ArcGUI `toolbox_files/`
+# ArcGUI Road Segmentation — Main Toolbox Guide
 
-This folder contains the ArcGIS Pro implementation of **ArcGUI Road Segmentation**.
+This folder contains the main ArcGIS Pro road-segmentation tool.
+
+Repository folder:
+
+https://github.com/majrblais/ArcGUI/tree/main/toolbox_files
 
 ```text
 toolbox_files/
@@ -9,237 +13,88 @@ toolbox_files/
 └── roadsegmentation_python.py
 ```
 
-Both Python files must remain together.
+Keep the `.pyt` and backend `.py` file together.
 
 ---
 
-## `roadsegmentation_tool.pyt`
+# 1. What this toolbox does
 
-This is the ArcGIS Pro Python toolbox definition.
+**ArcGUI Road Segmentation** takes a polygon processing area, obtains RGB imagery, runs the selected ONNX road-segmentation model, and creates georeferenced road outputs.
 
-It is responsible for:
+The tool can work in two ways:
 
-- displaying **ArcGUI Road Segmentation** in ArcGIS Pro;
-- defining the GUI parameters;
-- validating user selections before execution;
-- showing informative warnings and errors;
-- loading the backend from the same folder;
-- launching production or debug processing.
+- **Direct mode:** ArcGIS exports the retained 1024 × 1024 model tiles directly.
+- **Optimized mode:** ArcGIS exports larger imagery blocks and Python creates the 1024 × 1024 model windows locally.
 
-The current GUI exposes:
+Optimized mode is recommended for large areas.
+
+The current version also supports reusable imagery caches so the same region does not need to be downloaded again when only the model, threshold, or batch size changes.
+
+---
+
+# 2. Before opening the toolbox
+
+## ArcGIS Pro
+
+Open an ArcGIS Pro project with an active map.
+
+## Coordinate system
+
+The active map must use a **projected coordinate system measured in metres**.
+
+Do not leave the input extent with an Unknown/undefined CRS.
+
+## Cell size
+
+The deployment is designed for:
 
 ```text
-Extent Layer(s)
-Input Raster Layer Name
-Output Folder
-Road Segmentation ONNX Model
-Tile Overlap (%)
-Optimized Large-Area Export + Python Cropping
-Prediction Threshold
-ONNX Batch Size
-Debug Footprint Preview Only
-Reuse Matching Exported Imagery
+2 metres / pixel
 ```
 
-The current deployment uses the **exact selected polygon**. There is no user-configurable extent buffer.
-
----
-
-## `roadsegmentation_python.py`
-
-This is the processing backend.
-
-It contains the main logic for:
-
-- polygon and CRS validation;
-- imagery-layer validation;
-- direct 1024-tile planning;
-- optimized large-area block planning;
-- skipping areas outside the requested polygon;
-- ArcGIS imagery export;
-- reusable export-cache creation and validation;
-- ONNX Runtime provider selection;
-- SegFormer / U-Net model validation;
-- RGB + ImageNet preprocessing;
-- inference;
-- probability averaging;
-- thresholding;
-- georeferencing;
-- clipping;
-- final raster output;
-- runtime safeguards and error handling.
-
-The `.pyt` intentionally loads the backend located beside it so ArcGIS Pro does not accidentally reuse another copy of `roadsegmentation_python.py` from a previous deployment.
-
----
-
-# Supported Model Families
-
-Primary recommended models:
+In the ArcGIS Geoprocessing pane, open:
 
 ```text
-segformer_cuda_fp16.onnx
-best_unet_resnet101_norm_1024_cuda_fp16.onnx
+Environments
+→ Raster Analysis
+→ Cell Size
 ```
 
-Additional distributed variants may include:
+Enter:
 
 ```text
-segformer_cpu_fp32_optimized.onnx
-segformer_last_cuda_fp16.onnx
-last_unet_resnet101_norm_1024_cuda_fp16.onnx
-old_milestone_unet_resnet101_norm_1024.onnx
+2
 ```
 
-Model recognition is family based:
+This keeps ArcGIS raster processing aligned with the model deployment resolution.
+
+## Imagery
+
+Add the RGB imagery layer to the active map.
+
+Typical layer name:
 
 ```text
-filename contains "segformer"
-    -> SegFormer MiT-B5
-
-filename contains "unet" and "resnet101" or "r101"
-    -> U-Net ResNet101
+World Imagery
 ```
 
-Provider behavior:
+If another imagery layer is used, enter its exact ArcGIS layer name in the GUI.
 
-```text
-filename contains "cpu"
-    -> CPU only
+ArcGUI expects that name to identify one unique usable imagery/raster layer.
 
-filename contains "cuda" or "fp16"
-    -> CUDA required
+## Extent
 
-otherwise
-    -> CUDA preferred, CPU fallback
-```
+Add the polygon layer that defines the processing region.
 
-ArcGUI also validates the real ONNX input/output contract after the file is loaded.
+The current version uses the **exact selected polygon** as the target area.
+
+There is no user-configurable extent buffer.
+
+Selections and definition queries on the extent layer are respected.
 
 ---
 
-# Fixed Deployment Contract
-
-```text
-Input:
-    N x 3 x 1024 x 1024
-    RGB
-    float32
-
-Normalization:
-    ImageNet mean/std
-
-Output:
-    single-channel road logits
-
-Probability:
-    sigmoid(logits)
-
-Final threshold:
-    default 0.50
-
-Export resolution:
-    2 m/pixel
-```
-
-The active ArcGIS map must use a **projected coordinate system in metres**.
-
----
-
-# Processing Modes
-
-## Direct 1024-Tile Export
-
-When optimized mode is unchecked, ArcGUI plans 1024 × 1024 windows directly.
-
-Completely outside windows are rejected before export.
-
-Any tile intersecting the target polygon is retained so road context is not lost along the boundary.
-
-At 50% overlap, the stride is 512 pixels.
-
-## Optimized Large-Area Export
-
-Recommended for large regions.
-
-ArcGUI:
-
-1. plans balanced non-overlapping larger export blocks;
-2. rejects large blocks that do not intersect the target;
-3. exports the retained imagery with ArcGIS;
-4. creates the 1024 × 1024 overlapping model windows locally;
-5. skips model windows outside the requested polygon;
-6. runs ONNX inference;
-7. averages overlapping model probabilities.
-
----
-
-# Reusable Imagery Cache
-
-The reusable cache prevents re-downloading the same imagery for every model comparison.
-
-A matching cache depends on export-relevant settings such as:
-
-- selected polygon geometry;
-- imagery source;
-- coordinate system;
-- overlap;
-- optimized/direct mode;
-- fixed deployment settings.
-
-These can change without forcing a new imagery export:
-
-```text
-ONNX model
-Prediction threshold
-ONNX batch size
-```
-
-Therefore imagery exported for SegFormer can be reused for the U-Net model when the spatial/export configuration is unchanged.
-
-ArcGUI validates cached TIFFs before reuse and rejects incomplete, modified, incompatible, or incorrectly georeferenced caches.
-
----
-
-# Debug Footprint Preview
-
-Enable:
-
-```text
-Debug Footprint Preview Only
-```
-
-to inspect the spatial processing plan without exporting imagery or running ONNX inference.
-
----
-
-# Important Validation / Failure Behavior
-
-The hardened backend checks common deployment failures before they can silently create misleading output, including:
-
-- missing/duplicate/non-polygon extents;
-- unknown extent CRS;
-- invalid geometry;
-- missing active map;
-- missing or duplicated imagery-layer name;
-- incorrect map units;
-- invalid overlap/threshold/batch size;
-- missing or empty ONNX model;
-- unsupported model family;
-- unavailable CUDA provider;
-- incompatible ONNX I/O;
-- NaN/Inf model output;
-- low disk space;
-- failed or black imagery export;
-- invalid raster georeferencing;
-- incomplete cache;
-- zero valid inference coverage.
-
-Review the ArcGIS geoprocessing messages if a job fails.
-
----
-
-# Installation
+# 3. Install the toolbox
 
 In ArcGIS Pro:
 
@@ -249,54 +104,399 @@ Catalog
 → Add Toolbox
 ```
 
-Choose:
+Select:
 
 ```text
 roadsegmentation_tool.pyt
 ```
 
-Do not move `roadsegmentation_python.py` away from the `.pyt`.
-
----
-
-# Recommended Production Settings
-
-SegFormer:
+The tool appears as:
 
 ```text
-Model: segformer_cuda_fp16.onnx
-Tile Overlap: 50%
-Optimized Large-Area Export: Enabled
-Prediction Threshold: 0.50
-ONNX Batch Size: 2
-Reuse Matching Exported Imagery: Enabled
+ArcGUI Road Segmentation
 ```
 
-Faster U-Net alternative:
+Do not separate `roadsegmentation_tool.pyt` from `roadsegmentation_python.py`.
+
+---
+
+# 4. Recommended model choices
+
+Primary model:
 
 ```text
-Model: best_unet_resnet101_norm_1024_cuda_fp16.onnx
-ONNX Batch Size: 4
+segformer_cuda_fp16.onnx
 ```
 
-Reduce the batch size if GPU memory is limited.
-
----
-
-# Model Weights
-
-The model weights are not stored in this repository.
-
-Contact **Laurie Vidal** or **Dodick Gasser**.
-
-The weights are located in the **CCNB Innov – Chemin forestier** OneDrive shared by Laurie Vidal under the **`final`** folder.
-
----
-
-# Full Guide
-
-For the complete illustrated deployment guide, use:
+Faster CUDA alternative:
 
 ```text
-../reports/technical_guide.pdf
+best_unet_resnet101_norm_1024_cuda_fp16.onnx
+```
+
+Start with the primary SegFormer model when segmentation quality is the priority.
+
+Use the best U-Net model when faster inference is preferred.
+
+Other CPU / last / old models are mainly for compatibility, comparison, or reproducibility.
+
+Before first use on a new computer, run:
+
+```bash
+python ../utils/check.py
+```
+
+and verify the selected model.
+
+---
+
+# 5. GUI settings
+
+## Extent Layer(s)
+
+Select one or more polygon layer entries.
+
+Requirements:
+
+- polygon geometry;
+- defined CRS;
+- valid geometry;
+- no duplicate extent entry in the same job.
+
+If a layer has selected polygons, the selection is used.
+
+If one layer contains several selected polygons, those polygons are processed together for that layer entry.
+
+## Input Raster Layer Name
+
+Name of the imagery layer in the active map.
+
+Default:
+
+```text
+World Imagery
+```
+
+The name must match exactly one usable imagery/raster layer.
+
+If two layers have the same name, ArcGUI stops instead of guessing.
+
+## Output Folder
+
+Choose the root folder where ArcGUI will create:
+
+- reusable imagery cache;
+- model-specific processing folders;
+- probability outputs;
+- final predictions.
+
+Use a short local path when possible.
+
+Make sure the drive has sufficient free disk space.
+
+## Road Segmentation ONNX Model
+
+Browse to the ONNX model.
+
+Recommended:
+
+```text
+segformer_cuda_fp16.onnx
+```
+
+or:
+
+```text
+best_unet_resnet101_norm_1024_cuda_fp16.onnx
+```
+
+ArcGUI uses the filename to identify the model family and intended execution target, then validates the actual ONNX graph before inference.
+
+Basic filename behavior:
+
+```text
+contains "segformer"
+    -> SegFormer MiT-B5
+
+contains "unet" + "resnet101" or "r101"
+    -> U-Net ResNet101
+
+contains "cpu"
+    -> CPU only
+
+contains "cuda" or "fp16"
+    -> CUDA required
+
+otherwise
+    -> CUDA preferred, CPU fallback
+```
+
+## Tile Overlap (%)
+
+Default:
+
+```text
+50
+```
+
+The model window is always 1024 × 1024 pixels.
+
+Examples:
+
+| Overlap | Approx. stride |
+|---:|---:|
+| 0% | 1024 px |
+| 25% | 768 px |
+| 50% | 512 px |
+| 75% | 256 px |
+
+More overlap means more model evaluations and longer runtime.
+
+Use `50%` as the normal starting value.
+
+## Optimized Large-Area Export + Python Cropping
+
+Recommended for large areas.
+
+### Enabled
+
+ArcGUI exports larger balanced non-overlapping imagery blocks first.
+
+Then Python creates the overlapping 1024 × 1024 model windows from those exported TIFFs.
+
+Large blocks and model windows that do not intersect the target polygon are skipped.
+
+This mode usually makes large-area processing much more efficient.
+
+### Disabled
+
+ArcGIS directly exports the retained 1024 × 1024 model tiles.
+
+This can be useful for smaller jobs or comparison/debugging.
+
+## Prediction Threshold
+
+Default:
+
+```text
+0.50
+```
+
+Valid range:
+
+```text
+0.0 to 1.0
+```
+
+ArcGUI first reconstructs the probability surface and then applies the threshold.
+
+This means a saved probability output can later be re-thresholded with the `slider_toolbox` without rerunning the model.
+
+## ONNX Batch Size
+
+Number of model windows sent to ONNX Runtime in one call.
+
+Recommended starting values:
+
+| Model | Starting batch |
+|---|---:|
+| SegFormer CUDA | 2 |
+| U-Net CUDA | 4 |
+| CPU deployment | 1 |
+
+If GPU memory errors occur, reduce the batch size to `1`.
+
+Do not change the 1024 × 1024 model input size as a memory workaround.
+
+## Debug Footprint Preview Only
+
+Enable this before a large job if you want to inspect the spatial processing plan.
+
+Debug mode does **not**:
+
+- export imagery;
+- load the ONNX model;
+- run inference.
+
+It creates map footprints showing which blocks/windows will be retained or skipped.
+
+## Reuse Matching Exported Imagery
+
+Recommended:
+
+```text
+Enabled
+```
+
+If ArcGUI finds a complete matching cache, it can skip the World Imagery export and run the selected model directly on the existing TIFFs.
+
+A matching cache depends on the export-relevant setup, including:
+
+- polygon geometry;
+- imagery source;
+- map/export CRS;
+- overlap;
+- optimized/direct mode;
+- fixed deployment settings.
+
+The following may change without forcing a new imagery export:
+
+```text
+ONNX model
+Prediction threshold
+ONNX batch size
+```
+
+This is especially useful when comparing SegFormer and U-Net on the same extent.
+
+If a cache is missing files, changed, incomplete, incorrectly georeferenced, or otherwise incompatible, ArcGUI rejects it and creates a fresh export.
+
+---
+
+# 6. Recommended normal run
+
+For a typical large-area CUDA run:
+
+```text
+Extent Layer(s):                  your polygon layer
+Input Raster Layer Name:          World Imagery
+Output Folder:                    your output folder
+Road Segmentation ONNX Model:     segformer_cuda_fp16.onnx
+Tile Overlap (%):                 50
+Optimized Large-Area Export:      checked
+Prediction Threshold:             0.50
+ONNX Batch Size:                  2
+Debug Footprint Preview Only:     unchecked
+Reuse Matching Exported Imagery:  checked
+```
+
+For the best U-Net CUDA model, a batch size of `4` is a reasonable starting point if GPU memory allows it.
+
+---
+
+# 7. Optional ArcGIS processing extent control
+
+ArcGIS Pro also has an **Environments → Processing Extent** section where you can draw or enter a rectangular processing extent.
+
+This is useful when preparing or inspecting a rectangular area of interest.
+
+However, the **Extent Layer(s)** polygon selected in ArcGUI remains the authoritative target geometry for the ArcGUI workflow.
+
+If a rectangle drawn in ArcGIS is intended to be the true road-extraction area, prepare/use that rectangle as the polygon extent supplied to ArcGUI.
+
+---
+
+# 8. What happens when you click Run
+
+At a high level ArcGUI:
+
+1. validates the GUI settings;
+2. validates the polygon and coordinate systems;
+3. resolves the imagery layer;
+4. checks for a reusable matching imagery cache;
+5. plans direct tiles or optimized large blocks;
+6. exports imagery only where needed;
+7. validates the selected ONNX model and execution provider;
+8. runs inference on the 1024 × 1024 windows;
+9. averages overlapping probabilities;
+10. clips the result to the requested polygon;
+11. applies the selected threshold;
+12. writes model-specific outputs and final predictions.
+
+---
+
+# 9. Typical output structure
+
+```text
+output_folder/
+│
+├── Extent_Name/
+│   ├── export_cache/
+│   │   └── <configuration>/
+│   │       ├── export_config.txt
+│   │       ├── export_config.json
+│   │       └── imagery/
+│   │
+│   └── model_outputs/
+│       ├── segformer_best_cuda/
+│       │   └── <configuration>/
+│       └── unet_best_cuda/
+│           └── <configuration>/
+│
+└── final_predictions/
+    ├── segformer_best_cuda/
+    └── unet_best_cuda/
+```
+
+The exact subfolder names can include configuration/cache identifiers.
+
+---
+
+# 10. After inference: try another threshold
+
+If you want to test a different threshold without rerunning the model, use:
+
+```text
+../slider_toolbox/RoadProbabilityThreshold.pyt
+```
+
+See:
+
+[`../slider_toolbox/README.md`](../slider_toolbox/README.md)
+
+---
+
+# 11. Common problems
+
+## CUDA model selected but CUDA is unavailable
+
+Run:
+
+```bash
+python ../utils/check.py
+```
+
+If `CUDAExecutionProvider` is not available, fix the GPU ONNX Runtime / CUDA environment or use an appropriate CPU model.
+
+## Extent has Unknown CRS
+
+Define the correct source CRS before running ArcGUI.
+
+## Active map uses degrees or feet
+
+Switch to a projected CRS measured in metres.
+
+## Imagery layer not found
+
+Check the exact layer name in the active map.
+
+## Duplicate imagery-layer names
+
+Rename the intended imagery layer so its name is unique.
+
+## GPU out of memory
+
+Reduce ONNX Batch Size.
+
+## Large job is exporting imagery again
+
+Check whether:
+
+- the polygon changed;
+- overlap changed;
+- direct/optimized mode changed;
+- imagery source changed;
+- cache files were moved/modified;
+- the current cache schema is different.
+
+---
+
+# 12. Full technical guide
+
+This README is intentionally a how-to guide.
+
+For the deeper technical details, figures, validation behavior, model experiments, and results, use the PDFs in:
+
+```text
+../reports/
 ```
