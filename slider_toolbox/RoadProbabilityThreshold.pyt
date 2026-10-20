@@ -723,16 +723,18 @@ class GenerateBinaryRoadMask(object):
         arcpy.AddMessage("Output coding: 0 = background, 1 = road")
         arcpy.AddMessage(f"Output: {output}")
 
-        # Preserve NoData from the source. Valid probability pixels are converted
-        # to strict 0/1. Use Con so the output remains an integer thematic raster.
+        # Convert valid probability pixels to strict 0/1.
+        # IMPORTANT: do not use None as a Con() branch. ArcPy Con expects a
+        # raster/layer or numeric constant there and raises
+        # "TypeError: expected a raster or layer name" when given None.
+        #
+        # NoData is already preserved automatically: where source_raster is
+        # NoData, the comparison (source_raster > threshold) is NoData, and
+        # Con propagates that NoData to the output.
         binary = arcpy.sa.Con(
-            arcpy.sa.IsNull(source_raster),
-            None,
-            arcpy.sa.Con(
-                source_raster > threshold,
-                1,
-                0,
-            ),
+            source_raster > threshold,
+            1,
+            0,
         )
 
         binary.save(output)

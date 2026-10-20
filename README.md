@@ -4,6 +4,10 @@ ArcGUI is an ArcGIS Pro workflow for extracting forestry, rural, agricultural, a
 
 This README is the **starting point** for using the repository. It explains the overall workflow, the required environment, the recommended models, and which tool to open for each task.
 
+Also view this youtube video for a simple guide for both toolboxes:
+
+https://www.youtube.com/watch?v=UQTMZ1t5ZyM&feature=youtu.be
+
 For step-by-step use of a specific tool, open the README inside that tool's folder.
 
 Repository: https://github.com/majrblais/ArcGUI
