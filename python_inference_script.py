@@ -1,361 +1,366 @@
-# =========================================================
-# SINGLE-CELL ARCGIS PRO NOTEBOOK PIPELINE
-# Export one test extent -> ONNX prediction -> mosaic -> clip/clean
-# No .pyt / .py import required
-# =========================================================
+#!/usr/bin/env python
+# ============================================================
+# BARE-BONES ARCGUI ONNX FOLDER INFERENCE EXAMPLE
+#
+# Launch the script and select:
+#   1) an ONNX model
+#   2) a folder containing images
+#
+# The script creates one binary road mask per image.
+#
+# Supported model filename families:
+#   - SegFormer: filename contains "segformer"
+#   - U-Net ResNet101: filename contains "unet" and "resnet101"/"r101"
+#
+# Execution target:
+#   - contains "cpu"             -> CPU only
+#   - contains "cuda" or "fp16" -> CUDA required
+#   - otherwise                  -> CUDA preferred, CPU fallback
+#
+# Expected model preprocessing:
+#   RGB -> 1024x1024 -> ImageNet normalization -> NCHW float32
+#
+# Expected output:
+#   one-channel logits -> sigmoid -> threshold -> binary mask
+# ============================================================
 
 from pathlib import Path
-import os, sys, glob
+import glob
+import os
+import sys
+
 import numpy as np
-import cv2
 from PIL import Image
 
-# ---------------------------------------------------------
-# USER VARIABLES
-# ---------------------------------------------------------
-EXTENT_LAYER = "test"          # polygon/extent layer in current ArcGIS Pro map
-INPUT_RASTER_NAME = "World Imagery"
-
-MODEL_PATH = r"E:\Desktop\ccnb\best_unet_resnet101_norm_1024.onnx"
-OUTPUT_ROOT = r"C:\temp\arcgis_roads_notebook_test"
-
-STRIDE_X = 1024
-STRIDE_Y = 1024
-THRESHOLD = 0.5
-BATCH_SIZE = 4
-
-USE_EXTENT_BUFFER = True
-BUFFER_PIXELS = 100
-
-# ---------------------------------------------------------
-# FIXED PARAMETERS
-# ---------------------------------------------------------
-TILE_SIZE = 1024
-CELL_SIZE = 2.0
 MODEL_INPUT_SIZE = 1024
+THRESHOLD = 0.50
 
-# ---------------------------------------------------------
-# CUDA / ONNX DLL FIX
-# ---------------------------------------------------------
-_ENV = sys.prefix
-_NVIDIA_ROOT = Path(_ENV) / "Lib" / "site-packages" / "nvidia"
+SUPPORTED_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tif",
+    ".tiff",
+    ".bmp",
+}
 
-for dll_dir in glob.glob(str(_NVIDIA_ROOT / "*" / "bin")):
-    if os.path.isdir(dll_dir):
-        os.add_dll_directory(dll_dir)
-        os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
 
-_LIBRARY_BIN = Path(_ENV) / "Library" / "bin"
-if _LIBRARY_BIN.exists():
-    os.add_dll_directory(str(_LIBRARY_BIN))
-    os.environ["PATH"] = str(_LIBRARY_BIN) + os.pathsep + os.environ.get("PATH", "")
+# ------------------------------------------------------------
+# PICKERS
+# ------------------------------------------------------------
 
-# ---------------------------------------------------------
-# IMPORT ARCGIS / ONNX
-# ---------------------------------------------------------
-import arcpy
-import onnxruntime as ort
-from arcpy.ia import ExportTrainingDataForDeepLearning
-from arcpy.sa import SetNull
+def choose_model_and_folder():
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
 
-arcpy.env.overwriteOutput = True
-arcpy.CheckOutExtension("ImageAnalyst")
-arcpy.CheckOutExtension("Spatial")
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
 
-# ---------------------------------------------------------
-# HELPER FUNCTIONS
-# ---------------------------------------------------------
-def sigmoid(x):
-    x = np.asarray(x, dtype=np.float32)
-    x = np.clip(x, -50.0, 50.0)
-    return 1.0 / (1.0 + np.exp(-x))
+        model = filedialog.askopenfilename(
+            title="Select ArcGUI ONNX model",
+            filetypes=[
+                ("ONNX models", "*.onnx"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not model:
+            root.destroy()
+            raise SystemExit("No model was selected.")
 
-def prepare_input_rgb_imagenet(image_rgb):
-    img = cv2.resize(
-        image_rgb,
-        (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE),
-        interpolation=cv2.INTER_LINEAR
-    ).astype(np.float32)
+        image_folder = filedialog.askdirectory(
+            title="Select folder containing input images"
+        )
+        root.destroy()
 
-    img = img / 255.0
-    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-    img = (img - mean) / std
+        if not image_folder:
+            raise SystemExit("No image folder was selected.")
 
-    img = img.transpose(2, 0, 1).astype(np.float32)
-    return np.expand_dims(img, axis=0)
+        return Path(model).expanduser().resolve(), Path(image_folder).expanduser().resolve()
 
-def output_to_mask(raw_output, threshold):
+    except SystemExit:
+        raise
+    except Exception as exc:
+        print(f"File picker unavailable ({exc}).")
+        model = input("Full ONNX model path: ").strip().strip('"')
+        folder = input("Input image folder: ").strip().strip('"')
+        if not model or not folder:
+            raise SystemExit("Model and image folder are required.")
+        return Path(model).expanduser().resolve(), Path(folder).expanduser().resolve()
+
+
+# ------------------------------------------------------------
+# MODEL PROFILE
+# ------------------------------------------------------------
+
+def detect_model_profile(model_path):
+    path = Path(model_path)
+    stem = path.stem.lower()
+
+    if path.suffix.lower() != ".onnx":
+        raise ValueError("The selected model must be an .onnx file.")
+
+    if "segformer" in stem:
+        architecture = "SegFormer MiT-B5"
+        family = "segformer"
+    elif "unet" in stem and ("resnet101" in stem or "r101" in stem):
+        architecture = "U-Net ResNet101"
+        family = "unet_resnet101"
+    else:
+        raise ValueError(
+            "Unsupported model filename.\n"
+            "Use a SegFormer filename containing 'segformer', or a U-Net "
+            "ResNet101 filename containing 'unet' and 'resnet101'/'r101'."
+        )
+
+    if "cpu" in stem:
+        target = "cpu"
+    elif "cuda" in stem or "fp16" in stem:
+        target = "cuda"
+    else:
+        target = "auto"
+
+    return {
+        "family": family,
+        "architecture": architecture,
+        "target": target,
+    }
+
+
+MODEL_PATH, IMAGE_FOLDER = choose_model_and_folder()
+
+if not MODEL_PATH.is_file():
+    raise FileNotFoundError(f"Model not found:\n{MODEL_PATH}")
+
+if not IMAGE_FOLDER.is_dir():
+    raise NotADirectoryError(f"Input image folder not found:\n{IMAGE_FOLDER}")
+
+PROFILE = detect_model_profile(MODEL_PATH)
+
+
+# ------------------------------------------------------------
+# DLL DISCOVERY BEFORE ONNX RUNTIME IMPORT
+# ------------------------------------------------------------
+
+def add_dll_directory(directory):
+    directory = Path(directory)
+    if not directory.is_dir():
+        return
+
+    if hasattr(os, "add_dll_directory"):
+        try:
+            os.add_dll_directory(str(directory))
+        except Exception:
+            pass
+
+    os.environ["PATH"] = str(directory) + os.pathsep + os.environ.get("PATH", "")
+
+
+ENV = Path(sys.prefix)
+add_dll_directory(ENV / "Library" / "bin")
+
+if PROFILE["target"] in ("cuda", "auto"):
+    nvidia_root = ENV / "Lib" / "site-packages" / "nvidia"
+    for directory in glob.glob(str(nvidia_root / "*" / "bin")):
+        add_dll_directory(directory)
+
+
+try:
+    import onnxruntime as ort
+except Exception as exc:
+    raise RuntimeError(
+        "Could not import onnxruntime. For CUDA models, use onnxruntime-gpu.\n"
+        f"Original error: {exc}"
+    ) from exc
+
+
+if PROFILE["target"] in ("cuda", "auto"):
+    try:
+        if hasattr(ort, "preload_dlls"):
+            ort.preload_dlls(cuda=True, cudnn=True, msvc=True)
+    except Exception:
+        pass
+
+
+# ------------------------------------------------------------
+# PROVIDERS + SESSION
+# ------------------------------------------------------------
+
+available = ort.get_available_providers()
+
+if PROFILE["target"] == "cuda":
+    if "CUDAExecutionProvider" not in available:
+        raise RuntimeError(
+            "The selected model requires CUDA, but CUDAExecutionProvider is not available."
+        )
+    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    effective_target = "cuda"
+
+elif PROFILE["target"] == "cpu":
+    providers = ["CPUExecutionProvider"]
+    effective_target = "cpu"
+
+else:
+    if "CUDAExecutionProvider" in available:
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        effective_target = "cuda"
+    else:
+        providers = ["CPUExecutionProvider"]
+        effective_target = "cpu"
+
+options = ort.SessionOptions()
+options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+session = ort.InferenceSession(
+    str(MODEL_PATH),
+    sess_options=options,
+    providers=providers,
+)
+
+if effective_target == "cuda" and "CUDAExecutionProvider" not in session.get_providers():
+    raise RuntimeError("CUDA was requested but the ONNX session did not activate CUDAExecutionProvider.")
+
+inputs = session.get_inputs()
+outputs = session.get_outputs()
+
+if len(inputs) != 1 or len(outputs) != 1:
+    raise RuntimeError(
+        f"Expected one model input and one output, found {len(inputs)} input(s) and {len(outputs)} output(s)."
+    )
+
+input_meta = inputs[0]
+output_meta = outputs[0]
+
+if input_meta.type != "tensor(float)":
+    raise RuntimeError(f"Expected FP32 model input, got {input_meta.type}.")
+
+shape = input_meta.shape
+if len(shape) != 4:
+    raise RuntimeError(f"Expected NCHW model input, got {shape}.")
+if isinstance(shape[0], int) and shape[0] != 1:
+    raise RuntimeError(f"This simple example uses batch=1, but the model requires batch={shape[0]}.")
+if isinstance(shape[1], int) and shape[1] != 3:
+    raise RuntimeError(f"Expected 3 RGB channels, got {shape}.")
+if isinstance(shape[2], int) and shape[2] != MODEL_INPUT_SIZE:
+    raise RuntimeError(f"Expected input height 1024, got {shape[2]}.")
+if isinstance(shape[3], int) and shape[3] != MODEL_INPUT_SIZE:
+    raise RuntimeError(f"Expected input width 1024, got {shape[3]}.")
+
+
+# ------------------------------------------------------------
+# PREPROCESS / OUTPUT
+# ------------------------------------------------------------
+
+IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+try:
+    BILINEAR = Image.Resampling.BILINEAR
+    NEAREST = Image.Resampling.NEAREST
+except AttributeError:
+    BILINEAR = Image.BILINEAR
+    NEAREST = Image.NEAREST
+
+
+def preprocess(image):
+    image = image.convert("RGB")
+    resized = image.resize((MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), BILINEAR)
+    array = np.asarray(resized, dtype=np.float32) / 255.0
+    array = (array - IMAGENET_MEAN) / IMAGENET_STD
+    array = array.transpose(2, 0, 1)
+    return array[None, ...].astype(np.float32)
+
+
+def output_to_probability(raw_output):
     pred = np.asarray(raw_output)
 
     if pred.ndim == 4:
         if pred.shape[1] == 1:
-            pred = pred[:, 0, :, :]
+            pred = pred[0, 0]
         elif pred.shape[-1] == 1:
-            pred = pred[:, :, :, 0]
+            pred = pred[0, :, :, 0]
         else:
-            raise RuntimeError(f"Unexpected ONNX output shape: {raw_output.shape}")
+            raise RuntimeError(f"Unexpected multi-channel output shape: {pred.shape}")
+    elif pred.ndim == 3:
+        if pred.shape[0] != 1:
+            raise RuntimeError(f"Unexpected output shape: {pred.shape}")
+        pred = pred[0]
     elif pred.ndim == 2:
-        pred = np.expand_dims(pred, axis=0)
+        pass
+    else:
+        raise RuntimeError(f"Unexpected output shape: {pred.shape}")
 
-    pred = sigmoid(pred)
-    return (pred > threshold).astype(np.uint8)
+    pred = np.asarray(pred, dtype=np.float32)
 
-def chunks(items, batch_size):
-    for i in range(0, len(items), batch_size):
-        yield items[i:i + batch_size]
+    if not np.all(np.isfinite(pred)):
+        raise RuntimeError("Model output contains NaN or infinite values.")
 
-# ---------------------------------------------------------
-# OUTPUT FOLDERS
-# ---------------------------------------------------------
-OUTPUT_ROOT = Path(OUTPUT_ROOT)
-EXPORT_ROOT = OUTPUT_ROOT / "export_training_data"
-EXPORT_IMG_DIR = EXPORT_ROOT / "images"
-PRED_RASTER_DIR = OUTPUT_ROOT / "prediction_rasters"
-FINAL_DIR = OUTPUT_ROOT / "final"
+    pred = np.clip(pred, -50.0, 50.0)
+    return 1.0 / (1.0 + np.exp(-pred))
 
-for folder in [EXPORT_ROOT, PRED_RASTER_DIR, FINAL_DIR]:
-    folder.mkdir(parents=True, exist_ok=True)
 
-FINAL_MOSAIC = FINAL_DIR / "roads_prediction_mosaic.tif"
-FINAL_CLIPPED = FINAL_DIR / "roads_prediction_clipped.tif"
-FINAL_CLEAN = FINAL_DIR / "roads_prediction_clean.tif"
+# ------------------------------------------------------------
+# INPUT / OUTPUT FOLDERS
+# ------------------------------------------------------------
 
-print("Output root:", OUTPUT_ROOT)
-
-# ---------------------------------------------------------
-# GET EXTENT LAYER AND INPUT RASTER FROM CURRENT MAP
-# ---------------------------------------------------------
-if not arcpy.Exists(EXTENT_LAYER):
-    raise RuntimeError(f"Extent layer not found: {EXTENT_LAYER}")
-
-extent_desc = arcpy.Describe(EXTENT_LAYER)
-extent_fc = extent_desc.catalogPath
-spatial_ref = extent_desc.spatialReference
-original_extent = extent_desc.extent
-
-aprx = arcpy.mp.ArcGISProject("CURRENT")
-m = aprx.activeMap
-
-layers = m.listLayers(INPUT_RASTER_NAME)
-if not layers:
-    raise RuntimeError(f"Input raster layer not found in active map: {INPUT_RASTER_NAME}")
-
-input_raster = layers[0]
-
-print("Extent layer:", EXTENT_LAYER)
-print("Input raster:", input_raster.name)
-
-# ---------------------------------------------------------
-# LOAD ONNX MODEL
-# ---------------------------------------------------------
-available = ort.get_available_providers()
-providers = []
-
-if "CUDAExecutionProvider" in available:
-    providers.append("CUDAExecutionProvider")
-providers.append("CPUExecutionProvider")
-
-session = ort.InferenceSession(MODEL_PATH, providers=providers)
-
-input_name = session.get_inputs()[0].name
-output_name = session.get_outputs()[0].name
-
-print("Active session providers:", session.get_providers())
-print("ONNX input:", input_name)
-print("ONNX output:", output_name)
-
-# ---------------------------------------------------------
-# CREATE EXPORT EXTENT
-# ---------------------------------------------------------
-if USE_EXTENT_BUFFER:
-    buffer_map_units = BUFFER_PIXELS * CELL_SIZE
-    export_extent = arcpy.Extent(
-        original_extent.XMin - buffer_map_units,
-        original_extent.YMin - buffer_map_units,
-        original_extent.XMax + buffer_map_units,
-        original_extent.YMax + buffer_map_units
-    )
-else:
-    export_extent = original_extent
-
-export_extent_str = (
-    f"{export_extent.XMin} {export_extent.YMin} "
-    f"{export_extent.XMax} {export_extent.YMax}"
+images = sorted(
+    p for p in IMAGE_FOLDER.iterdir()
+    if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
 )
 
-print("Export extent:", export_extent_str)
-
-# ---------------------------------------------------------
-# STAGE 1 - EXPORT TRAINING DATA
-# ---------------------------------------------------------
-print("\nSTAGE 1 - ExportTrainingDataForDeepLearning")
-
-with arcpy.EnvManager(
-    extent=export_extent_str,
-    cellSize=CELL_SIZE,
-    snapRaster=None,
-    mask=None,
-    outputCoordinateSystem=spatial_ref
-):
-    ExportTrainingDataForDeepLearning(
-        in_raster=input_raster,
-        out_folder=str(EXPORT_ROOT),
-        image_chip_format="TIFF",
-        tile_size_x=TILE_SIZE,
-        tile_size_y=TILE_SIZE,
-        stride_x=STRIDE_X,
-        stride_y=STRIDE_Y,
-        output_nofeature_tiles="ALL_TILES",
-        metadata_format="Export_Tiles",
-        start_index=0
+if not images:
+    raise RuntimeError(
+        f"No supported images were found in:\n{IMAGE_FOLDER}\n\n"
+        f"Supported extensions: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
     )
 
-tifs = sorted(EXPORT_IMG_DIR.glob("*.tif"))
-print("Exported tiles:", len(tifs))
+OUTPUT_FOLDER = IMAGE_FOLDER / f"masks_{MODEL_PATH.stem}"
+OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
 
-if not tifs:
-    raise RuntimeError("No tiles were exported.")
+print("\n" + "=" * 76)
+print("ARCGUI SIMPLE FOLDER INFERENCE")
+print("=" * 76)
+print("Model          :", MODEL_PATH.name)
+print("Architecture   :", PROFILE["architecture"])
+print("Execution      :", effective_target.upper())
+print("Input folder   :", IMAGE_FOLDER)
+print("Output folder  :", OUTPUT_FOLDER)
+print("Images         :", len(images))
+print("Threshold      :", THRESHOLD)
+print("=" * 76)
 
-# ---------------------------------------------------------
-# READ TILE GEOREFERENCE INFO
-# ---------------------------------------------------------
-tile_info = []
 
-for tif in tifs:
-    r = arcpy.Raster(str(tif))
-    tile_info.append({
-        "path": tif,
-        "uid": tif.stem,
-        "extent": r.extent,
-        "cell_w": r.meanCellWidth,
-        "cell_h": r.meanCellHeight,
-        "spatial_ref": r.spatialReference
-    })
+# ------------------------------------------------------------
+# RUN ONE IMAGE AT A TIME
+# ------------------------------------------------------------
 
-# ---------------------------------------------------------
-# STAGE 2 - ONNX PREDICTION
-# ---------------------------------------------------------
-print("\nSTAGE 2 - ONNX prediction")
+for index, image_path in enumerate(images, start=1):
+    try:
+        with Image.open(image_path) as image:
+            original_size = image.size  # (width, height)
+            input_tensor = preprocess(image)
 
-pred_rasters = []
+        raw = session.run(
+            [output_meta.name],
+            {input_meta.name: input_tensor},
+        )[0]
 
-for batch_idx, batch in enumerate(chunks(tile_info, BATCH_SIZE), start=1):
-    print(f"Batch {batch_idx}")
+        probability = output_to_probability(raw)
+        mask = (probability > THRESHOLD).astype(np.uint8) * 255
 
-    tensors = []
-    prepared = []
+        mask_image = Image.fromarray(mask, mode="L")
+        if mask_image.size != original_size:
+            mask_image = mask_image.resize(original_size, NEAREST)
 
-    for item in batch:
-        img = np.array(Image.open(item["path"]).convert("RGB"))
-        h, w = img.shape[:2]
+        output_path = OUTPUT_FOLDER / f"{image_path.stem}_mask.png"
+        mask_image.save(output_path)
 
-        tensors.append(prepare_input_rgb_imagenet(img))
-        prepared.append((item, h, w))
+        print(f"[{index}/{len(images)}] {image_path.name} -> {output_path.name}")
 
-    batch_input = np.concatenate(tensors, axis=0).astype(np.float32)
-    raw = session.run([output_name], {input_name: batch_input})[0]
-    masks = output_to_mask(raw, THRESHOLD)
+    except Exception as exc:
+        print(f"[{index}/{len(images)}] FAILED: {image_path.name} -> {exc}")
 
-    for mask, (item, h, w) in zip(masks, prepared):
-        ext = item["extent"]
-
-        mask_big = cv2.resize(
-            mask.astype(np.uint8),
-            (w, h),
-            interpolation=cv2.INTER_NEAREST
-        )
-
-        raster = arcpy.NumPyArrayToRaster(
-            mask_big.astype(np.uint8) * 255,
-            arcpy.Point(ext.XMin, ext.YMin),
-            item["cell_w"],
-            item["cell_h"],
-            value_to_nodata=0
-        )
-
-        out_raster = PRED_RASTER_DIR / f"{item['uid']}.tif"
-        raster.save(str(out_raster))
-        arcpy.management.DefineProjection(str(out_raster), item["spatial_ref"])
-
-        pred_rasters.append(str(out_raster))
-
-print("Prediction rasters:", len(pred_rasters))
-
-if not pred_rasters:
-    raise RuntimeError("No prediction rasters were created.")
-
-# ---------------------------------------------------------
-# STAGE 3 - MOSAIC PREDICTIONS
-# ---------------------------------------------------------
-print("\nSTAGE 3 - Mosaic")
-
-for p in [FINAL_MOSAIC, FINAL_CLIPPED, FINAL_CLEAN]:
-    if arcpy.Exists(str(p)):
-        arcpy.management.Delete(str(p))
-
-first_pred = arcpy.Raster(pred_rasters[0])
-
-arcpy.management.MosaicToNewRaster(
-    input_rasters=";".join(pred_rasters),
-    output_location=str(FINAL_DIR),
-    raster_dataset_name_with_extension=FINAL_MOSAIC.name,
-    coordinate_system_for_the_raster=first_pred.spatialReference,
-    pixel_type="8_BIT_UNSIGNED",
-    cellsize=first_pred.meanCellWidth,
-    number_of_bands=1,
-    mosaic_method="MAXIMUM",
-    mosaic_colormap_mode="FIRST"
-)
-
-print("Mosaic:", FINAL_MOSAIC)
-
-# ---------------------------------------------------------
-# STAGE 4 - CLIP BACK TO ORIGINAL EXTENT GEOMETRY
-# ---------------------------------------------------------
-print("\nSTAGE 4 - Clip to original extent")
-
-original_extent_str = (
-    f"{original_extent.XMin} {original_extent.YMin} "
-    f"{original_extent.XMax} {original_extent.YMax}"
-)
-
-arcpy.management.Clip(
-    in_raster=str(FINAL_MOSAIC),
-    rectangle=original_extent_str,
-    out_raster=str(FINAL_CLIPPED),
-    in_template_dataset=extent_fc,
-    nodata_value="0",
-    clipping_geometry="ClippingGeometry",
-    maintain_clipping_extent="MAINTAIN_EXTENT"
-)
-
-arcpy.management.DefineProjection(str(FINAL_CLIPPED), first_pred.spatialReference)
-
-print("Clipped:", FINAL_CLIPPED)
-
-# ---------------------------------------------------------
-# STAGE 5 - CLEAN BACKGROUND TO NODATA
-# ---------------------------------------------------------
-print("\nSTAGE 5 - Clean output")
-
-SetNull(str(FINAL_CLIPPED), str(FINAL_CLIPPED), "VALUE = 0").save(str(FINAL_CLEAN))
-arcpy.management.DefineProjection(str(FINAL_CLEAN), first_pred.spatialReference)
-
-try:
-    arcpy.management.CalculateStatistics(str(FINAL_CLEAN))
-    arcpy.management.BuildPyramids(str(FINAL_CLEAN))
-except Exception as e:
-    print("Warning while building stats/pyramids:", e)
-
-# ---------------------------------------------------------
-# ADD FINAL OUTPUT TO MAP
-# ---------------------------------------------------------
-try:
-    m.addDataFromPath(str(FINAL_CLEAN))
-except Exception as e:
-    print("Could not add output to map:", e)
-
-print("\nDONE")
-print("Final clean raster:")
-print(FINAL_CLEAN)
+print("\nDone.")
+print("Masks saved to:")
+print(OUTPUT_FOLDER)
